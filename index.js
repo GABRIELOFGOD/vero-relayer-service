@@ -14,6 +14,7 @@ const { logger } = require('./src/logger');
 const { startConfigPoller } = require('./src/services/config-poller');
 const { ingestRateLimiter } = require('./src/middleware/rateLimit');
 const { runMigrations } = require('./src/db/run-migrations');
+const { healthCheck: dbHealthCheck, getPoolMetrics } = require('./src/db/client');
 
 function createApp(options = {}) {
   const enqueueEventJob = options.enqueueEventJob || enqueueEvent;
@@ -33,8 +34,40 @@ function createApp(options = {}) {
 
   registerMetrics(app);
 
-  app.get('/health', (req, res) => {
-    res.status(200).send('OK');
+  app.get('/health', async (req, res) => {
+    try {
+      const dbHealth = await dbHealthCheck();
+      const poolMetrics = getPoolMetrics();
+      
+      if (dbHealth.healthy) {
+        return res.status(200).json({
+          status: 'OK',
+          timestamp: new Date().toISOString(),
+          database: {
+            healthy: true,
+            latencyMs: dbHealth.latencyMs,
+            pool: poolMetrics,
+          },
+        });
+      } else {
+        return res.status(503).json({
+          status: 'DEGRADED',
+          timestamp: new Date().toISOString(),
+          database: {
+            healthy: false,
+            error: dbHealth.error,
+            pool: poolMetrics,
+          },
+        });
+      }
+    } catch (error) {
+      logger.error({ error: error.message }, '[health] Health check failed');
+      return res.status(503).json({
+        status: 'ERROR',
+        timestamp: new Date().toISOString(),
+        error: error.message,
+      });
+    }
   });
 
   // GitHub webhook endpoint — rate-limited before signature verification
@@ -97,6 +130,18 @@ async function startServer() {
     logger.info('[startup] Database migrations complete');
   } catch (migrationErr) {
     logger.error({ error: migrationErr.message }, '[startup] Database migrations failed — continuing');
+  }
+
+  // Verify database pool connectivity
+  try {
+    const dbHealth = await dbHealthCheck();
+    if (dbHealth.healthy) {
+      logger.info({ pool: getPoolMetrics() }, '[startup] Database pool ready');
+    } else {
+      logger.warn({ error: dbHealth.error }, '[startup] Database pool connectivity issue');
+    }
+  } catch (error) {
+    logger.error({ error: error.message }, '[startup] Database health check failed');
   }
 
   validateRedisConfig();
