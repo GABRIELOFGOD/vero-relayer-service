@@ -10,7 +10,9 @@
     "dev": "nodemon index.js",
     "worker:events": "node src/workers/event-worker.js",
     "simulate": "node scripts/mock-webhook.js",
-    "test": "node --test"
+    "test": "node --test",
+    "benchmark:pool": "node benchmarks/pool-performance.js",
+    "validate:pool": "node scripts/validate-pool-setup.js"
   },
   "dependencies": {
     "@opentelemetry/auto-instrumentations-node": "^0.77.0",

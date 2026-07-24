@@ -136,6 +136,16 @@ vero-relayer-service/
 | `ENABLE_HTTP_REQUEST_LOGS` | No | Set to `false` to disable automatic request completion logs |
 | `STELLAR_SECRET_KEY` | Yes | Signing key for the relayer account |
 | `STELLAR_NETWORK` | No | `testnet` (default) or `mainnet` |
+| `DATABASE_URL` | Yes | PostgreSQL connection string (takes precedence over individual params) |
+| `PGHOST` | Conditional | Database host (required if `DATABASE_URL` not set) |
+| `PGPORT` | No | Database port, defaults to `5432` |
+| `PGUSER` | Conditional | Database user (required if `DATABASE_URL` not set) |
+| `PGPASSWORD` | Conditional | Database password (required if `DATABASE_URL` not set) |
+| `PGDATABASE` | Conditional | Database name (required if `DATABASE_URL` not set) |
+| `DB_POOL_MIN` | No | Minimum pool connections, defaults to `2` |
+| `DB_POOL_MAX` | No | Maximum pool connections, defaults to `20` |
+| `DB_POOL_IDLE_TIMEOUT` | No | Idle timeout (ms), defaults to `30000` |
+| `DB_POOL_CONNECTION_TIMEOUT` | No | Connection timeout (ms), defaults to `5000` |
 | `REDIS_HOST` | Yes | Redis host for BullMQ |
 | `REDIS_PORT` | Yes | Redis port for BullMQ |
 | `REDIS_USERNAME` | No | Redis ACL username, when required by the provider |
@@ -149,6 +159,56 @@ vero-relayer-service/
 | `RPC_CACHE_TTL_FEE` | No | TTL (ms) for cached fee stats responses. Defaults to `60000` (60s) |
 | `RPC_CACHE_TTL_ACCOUNT` | No | TTL (ms) for cached account lookups. Defaults to `10000` (10s) |
 | `OTEL_SDK_DISABLED` | No | Set to `true` to disable tracing at startup |
+
+---
+
+## Database Connection Pooling
+
+The service uses PostgreSQL with pg-pool for persistent, efficient database connections. This eliminates connection overhead during traffic bursts and enables concurrent request handling.
+
+### Key Features
+
+- **Connection Reuse**: Shared pool eliminates per-request connection overhead
+- **Burst Resilience**: Queues requests when pool saturated instead of failing
+- **Automatic Monitoring**: Pool metrics exposed via `/health` endpoint
+- **Graceful Shutdown**: All connections closed cleanly on SIGTERM/SIGINT
+
+### Health Check Response
+
+```json
+{
+  "status": "OK",
+  "timestamp": "2024-01-15T10:30:00.000Z",
+  "database": {
+    "healthy": true,
+    "latencyMs": 12,
+    "pool": {
+      "totalConnections": 5,
+      "idleConnections": 3,
+      "waitingClients": 0,
+      "maxConnections": 20,
+      "minConnections": 2,
+      "totalErrors": 0
+    }
+  }
+}
+```
+
+### Performance Benchmarks
+
+Run the included benchmark suite to verify pool performance:
+
+```bash
+node benchmarks/pool-performance.js
+```
+
+Expected results:
+- Connection reuse efficiency: >90%
+- Throughput: >100 queries/second at 200 concurrency
+- Zero failures under normal load
+- Graceful queuing when pool saturated
+
+For detailed configuration and usage patterns, see [docs/database-pooling.md](docs/database-pooling.md).
 
 ---
 
