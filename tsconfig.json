@@ -9,5 +9,5 @@
     "noEmit": true,
     "types": ["node"]
   },
-  "include": ["src/services/fee-engine.ts"]
+  "include": ["src/queue/batcher.ts", "src/workers/cleanup.ts"]
 }

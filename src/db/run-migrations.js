@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const { pool } = require('./client');
+const { logger } = require('../logger');
 
 const MIGRATIONS_DIR = path.resolve(__dirname, 'migrations');
 
@@ -15,7 +16,7 @@ async function runMigrations() {
     .sort();
 
   if (files.length === 0) {
-    console.log('[migrations] No migration files found');
+    logger.info('[migrations] No migration files found');
     return;
   }
 
@@ -43,7 +44,7 @@ async function runMigrations() {
         }
 
         const sql = fs.readFileSync(path.join(MIGRATIONS_DIR, file), 'utf8');
-        console.log(`[migrations] Applying ${file}...`);
+        logger.info(`[migrations] Applying ${file}...`);
 
         await client.query(sql);
         await client.query(
@@ -51,7 +52,7 @@ async function runMigrations() {
           [file]
         );
 
-        console.log(`[migrations] ${file} applied`);
+        logger.info(`[migrations] ${file} applied`);
       }
     } finally {
       await client.query('SELECT pg_advisory_unlock(781237)');
