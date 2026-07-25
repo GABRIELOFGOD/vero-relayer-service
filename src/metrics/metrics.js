@@ -1,3 +1,5 @@
+const { logger } = require('../logger');
+
 let client;
 try {
   client = require('prom-client');
@@ -28,7 +30,7 @@ try {
     client.collectDefaultMetrics();
   }
 } catch (e) {
-  console.warn('prom-client: failed to collect default metrics:', e && e.message);
+  logger.warn({ error: e && e.message }, 'prom-client: failed to collect default metrics');
 }
 
 // Counter for total processed events, labeled by task_type for better granularity

@@ -10,6 +10,7 @@ const {
 } = require('./src/queue');
 const { storeRawEvent, fetchRawEvent } = require('./src/queue/raw-event-store');
 const { registerMetrics } = require('./src/metrics/metrics');
+const { enforceIdempotency } = require('./src/middleware/idempotency');
 const { logger } = require('./src/logger');
 const { startConfigPoller } = require('./src/services/config-poller');
 const { ingestRateLimiter } = require('./src/middleware/rateLimit');
@@ -20,6 +21,7 @@ function createApp(options = {}) {
   const enqueueEventJob = options.enqueueEventJob || enqueueEvent;
   const storeRawEventFn = options.storeRawEvent || storeRawEvent;
   const fetchRawEventFn = options.fetchRawEvent || fetchRawEvent;
+  const idempotencyMiddleware = options.idempotencyMiddleware || enforceIdempotency;
   const app = express();
 
   // Trust the first proxy hop so X-Forwarded-For is used to resolve the real
@@ -153,7 +155,7 @@ async function startServer() {
     logger.info({ port }, 'server listening');
   });
 
-  return app.listen(port, () => logger.info({ port }, 'Server listening on port'));
+  return server;
 }
 
 module.exports = {
