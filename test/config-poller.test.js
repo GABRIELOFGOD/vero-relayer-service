@@ -8,6 +8,9 @@ process.env.NODE_ENV = 'test';
 process.env.REDIS_HOST = '127.0.0.1';
 process.env.REDIS_PORT = '6379';
 
+// Enable unsigned fallback for tests that exercise it
+process.env.CONFIG_SYNC_ALLOW_UNSIGNED = 'true';
+
 let mockConfigs = {};
 let mockSignature = null;
 let mockPayload = null;
@@ -42,7 +45,7 @@ require.cache[require.resolve('ioredis')] = {
   }
 };
 
-const { pollConfig, dynamicConfig, verifyConfigSignature, applyConfig } = require('../src/services/config-poller');
+const { pollConfig, dynamicConfig, verifyConfigSignature, applyConfig, handleWorkerConfigUpdate, CONFIG_ALLOWLIST } = require('../src/services/config-poller');
 const { signJwt } = require('../src/services/jwt');
 const { getFeeEngineConfig } = require('../src/services/fee-engine');
 const { logger } = require('../src/logger');
@@ -96,7 +99,7 @@ test('config poller handles Redis errors gracefully', async () => {
 
 test('config poller applies signed config with valid signature', async () => {
   // Setup JWT signing secret for test
-  process.env.JWT_SIGNING_SECRET = 'test-secret-min-32-chars-long';
+  process.env.JWT_SIGNING_SECRET = 'test-signing-secret-32-chars-min!!';
   process.env.JWT_ISSUER = 'test-issuer';
   
   const testConfig = {
@@ -124,7 +127,7 @@ test('config poller applies signed config with valid signature', async () => {
 });
 
 test('config poller rejects signed config with invalid signature', async () => {
-  process.env.JWT_SIGNING_SECRET = 'test-secret-min-32-chars-long';
+  process.env.JWT_SIGNING_SECRET = 'test-signing-secret-32-chars-min!!';
   
   const testConfig = {
     STELLAR_BASE_FEE: '555'
@@ -187,4 +190,160 @@ test('applyConfig clears fee engine cache on config change', async () => {
   
   // Restore
   require('../src/services/fee-engine').clearFeeEstimateCache = originalClear;
+});
+
+// ============================================================================
+// Security regression tests — issue #127
+// ============================================================================
+
+// --- Regression 1 -----------------------------------------------------------
+// Unsigned config must be rejected in direct-poll mode when the operator has
+// NOT opted in via CONFIG_SYNC_ALLOW_UNSIGNED.
+test('[security] unsigned config is rejected when CONFIG_SYNC_ALLOW_UNSIGNED is not set', async () => {
+  const prev = process.env.CONFIG_SYNC_ALLOW_UNSIGNED;
+  process.env.CONFIG_SYNC_ALLOW_UNSIGNED = 'false';
+
+  mockPayload = null;
+  mockSignature = null;
+  mockConfigs = { STELLAR_BASE_FEE: 'SHOULD_NOT_APPLY' };
+
+  const sentinelValue = 'sentinel-' + Date.now();
+  process.env.STELLAR_BASE_FEE = sentinelValue;
+
+  try {
+    await pollConfig();
+    // The unsigned fallback must have been skipped.
+    assert.equal(
+      process.env.STELLAR_BASE_FEE,
+      sentinelValue,
+      'STELLAR_BASE_FEE must not be overwritten when unsigned fallback is disabled'
+    );
+  } finally {
+    process.env.CONFIG_SYNC_ALLOW_UNSIGNED = prev;
+    mockConfigs = {};
+    delete process.env.STELLAR_BASE_FEE;
+  }
+});
+
+// --- Regression 2 -----------------------------------------------------------
+// config-worker.js async-worker path must NOT label config as source:'signed'
+// when the JWT signature is invalid.  handleWorkerConfigUpdate() must also
+// reject a message that arrives with source:'signed' but no rawSignature.
+test('[security] worker message with source:signed but missing rawSignature is rejected', async () => {
+  process.env.JWT_SIGNING_SECRET = 'test-signing-secret-32-chars-min!!';
+  process.env.JWT_ISSUER = 'test-issuer';
+
+  const sentinelValue = 'sentinel-' + Date.now();
+  process.env.STELLAR_BASE_FEE = sentinelValue;
+
+  // Simulate a worker message that falsely claims source:'signed' but
+  // provides no cryptographic material (the old vulnerable behaviour).
+  await handleWorkerConfigUpdate({
+    type: 'configUpdate',
+    configs: { STELLAR_BASE_FEE: 'ATTACKER_VALUE' },
+    source: 'signed',
+    // rawSignature and rawPayload intentionally omitted
+  });
+
+  assert.equal(
+    process.env.STELLAR_BASE_FEE,
+    sentinelValue,
+    'STELLAR_BASE_FEE must not change when worker omits rawSignature'
+  );
+
+  delete process.env.STELLAR_BASE_FEE;
+});
+
+// --- Regression 2b ----------------------------------------------------------
+// handleWorkerConfigUpdate() must reject a signed message whose signature
+// does not verify (e.g. wrong key, tampered payload).
+test('[security] worker message with source:signed and invalid signature is rejected', async () => {
+  process.env.JWT_SIGNING_SECRET = 'test-signing-secret-32-chars-min!!';
+  process.env.JWT_ISSUER = 'test-issuer';
+
+  const sentinelValue = 'sentinel-' + Date.now();
+  process.env.STELLAR_BASE_FEE = sentinelValue;
+
+  const fakePayload = JSON.stringify({ STELLAR_BASE_FEE: 'ATTACKER_VALUE' });
+
+  await handleWorkerConfigUpdate({
+    type: 'configUpdate',
+    configs: { STELLAR_BASE_FEE: 'ATTACKER_VALUE' },
+    source: 'signed',
+    rawSignature: 'bad.jwt.token',
+    rawPayload: fakePayload,
+  });
+
+  assert.equal(
+    process.env.STELLAR_BASE_FEE,
+    sentinelValue,
+    'STELLAR_BASE_FEE must not change when worker sends invalid signature'
+  );
+
+  delete process.env.STELLAR_BASE_FEE;
+});
+
+// --- Regression 3 -----------------------------------------------------------
+// Sensitive keys must NEVER be applied via dynamic config sync, even when the
+// payload carries a valid signature.
+test('[security] sensitive keys are blocked by the allowlist even with a valid signature', async () => {
+  process.env.JWT_SIGNING_SECRET = 'test-signing-secret-32-chars-min!!';
+  process.env.JWT_ISSUER = 'test-issuer';
+
+  const { signJwt } = require('../src/services/jwt');
+
+  // Confirm none of the sensitive keys are on the allowlist
+  const sensitiveKeys = [
+    'STELLAR_SECRET_KEY',
+    'DATABASE_URL',
+    'JWT_SIGNING_SECRET',
+    'REDIS_PASSWORD',
+    'GITHUB_WEBHOOK_SECRET',
+    'PGPASSWORD',
+    'PGUSER',
+    'PGHOST',
+    'PGPORT',
+    'PGDATABASE',
+  ];
+
+  for (const key of sensitiveKeys) {
+    assert.equal(
+      CONFIG_ALLOWLIST.has(key),
+      false,
+      `${key} must NOT be on the config sync allowlist`
+    );
+  }
+
+  // Attempt to apply sensitive keys with a valid signature via direct applyConfig
+  const maliciousPayload = {
+    STELLAR_SECRET_KEY: 'SATTACKER000000000000000000000000000000000000',
+    DATABASE_URL: 'postgresql://attacker:pass@evil.host/db',
+    JWT_SIGNING_SECRET: 'attacker-controlled-32-char-secret!!',
+    STELLAR_BASE_FEE: '100', // allowed — should be applied
+  };
+
+  const origStellarSecret = process.env.STELLAR_SECRET_KEY;
+  const origDbUrl = process.env.DATABASE_URL;
+  const origJwtSecret = process.env.JWT_SIGNING_SECRET;
+
+  process.env.STELLAR_SECRET_KEY = 'ORIGINAL_SECRET';
+  process.env.DATABASE_URL = 'postgresql://legit/db';
+
+  await applyConfig(maliciousPayload, 'signed');
+
+  // Sensitive keys must remain unchanged
+  assert.equal(process.env.STELLAR_SECRET_KEY, 'ORIGINAL_SECRET', 'STELLAR_SECRET_KEY must not be overwritten');
+  assert.equal(process.env.DATABASE_URL, 'postgresql://legit/db', 'DATABASE_URL must not be overwritten');
+  // JWT_SIGNING_SECRET was set to test value above; it must not become the attacker value
+  assert.notEqual(process.env.JWT_SIGNING_SECRET, 'attacker-controlled-32-char-secret!!', 'JWT_SIGNING_SECRET must not be overwritten');
+
+  // The allowlisted key should have been applied
+  assert.equal(process.env.STELLAR_BASE_FEE, '100', 'allowlisted STELLAR_BASE_FEE should be applied');
+
+  // Restore
+  if (origStellarSecret !== undefined) process.env.STELLAR_SECRET_KEY = origStellarSecret;
+  else delete process.env.STELLAR_SECRET_KEY;
+  if (origDbUrl !== undefined) process.env.DATABASE_URL = origDbUrl;
+  else delete process.env.DATABASE_URL;
+  process.env.JWT_SIGNING_SECRET = 'test-signing-secret-32-chars-min!!';
 });
