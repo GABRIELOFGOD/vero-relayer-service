@@ -11,15 +11,7 @@ const { logger } = require('../logger');
 // rejected, preventing unauthenticated internal traffic.
 // ---------------------------------------------------------------------------
 
-const ERROR_CODES = {
-  MISSING_TOKEN: 401,
-  MALFORMED_TOKEN: 401,
-  INVALID_ALGORITHM: 401,
-  INVALID_SIGNATURE: 401,
-  TOKEN_EXPIRED: 401,
-  TOKEN_NOT_YET_VALID: 401,
-  INVALID_ISSUER: 401,
-};
+const { statusForCode } = require('../services/jwt-error-codes');
 
 /**
  * Express middleware that enforces JWT Bearer authentication.
@@ -65,7 +57,7 @@ function verifyJwtBearer(req, res, next) {
     req.jwtPayload = payload;
     return next();
   } catch (err) {
-    const status = ERROR_CODES[err.code] ?? 401;
+    const status = statusForCode(err.code) ?? 401;
     logger.warn(
       { code: err.code, path: req.path, method: req.method },
       '[jwt-auth] rejected request: %s',
