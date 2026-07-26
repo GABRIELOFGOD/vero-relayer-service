@@ -16,6 +16,7 @@ const { startConfigPoller } = require('./src/services/config-poller');
 const { ingestRateLimiter } = require('./src/middleware/rateLimit');
 const { runMigrations } = require('./src/db/run-migrations');
 const { healthCheck: dbHealthCheck, getPoolMetrics } = require('./src/db/client');
+const { sendError } = require('./src/utils/http-errors');
 
 function createApp(options = {}) {
   const enqueueEventJob = options.enqueueEventJob || enqueueEvent;
@@ -93,7 +94,7 @@ function createApp(options = {}) {
       return res.status(202).json({ ok: true, pr: pr.number, queued: true, jobId: job.id });
     } catch (error) {
       logger.error({ pr: pr.number, error: error.message }, '[webhook] failed to enqueue PR');
-      return res.status(500).json({ ok: false, error: 'failed to enqueue event' });
+      return sendError(res, 500, 'ENQUEUE_FAILED', 'failed to enqueue event');
     }
   });
 
@@ -101,14 +102,14 @@ function createApp(options = {}) {
     const { idempotencyKey } = req.body;
 
     if (!idempotencyKey || typeof idempotencyKey !== 'string') {
-      return res.status(400).json({ ok: false, error: 'idempotencyKey is required' });
+      return sendError(res, 400, 'MISSING_IDEMPOTENCY_KEY', 'idempotencyKey is required');
     }
 
     try {
       const stored = await fetchRawEventFn(idempotencyKey);
 
       if (!stored) {
-        return res.status(404).json({ ok: false, error: 'raw event not found' });
+        return sendError(res, 404, 'NOT_FOUND', 'raw event not found');
       }
 
       const eventPayload = buildGitHubPullRequestEventPayload(stored.rawEvent, stored.metadata);
@@ -118,7 +119,7 @@ function createApp(options = {}) {
       return res.status(202).json({ ok: true, replayed: true, jobId: job.id });
     } catch (error) {
       logger.error({ idempotencyKey, error: error.message }, '[webhook] failed to replay raw event');
-      return res.status(500).json({ ok: false, error: 'failed to replay raw event' });
+      return sendError(res, 500, 'REPLAY_FAILED', 'failed to replay raw event');
     }
   });
 

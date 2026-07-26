@@ -2,6 +2,7 @@
 
 const { getRedisConnectionOptions } = require('../queue/redis');
 const { logger } = require('../logger');
+const { sendError } = require('../utils/http-errors');
 
 // ---------------------------------------------------------------------------
 // Idempotency-Key middleware
@@ -53,10 +54,7 @@ async function enforceIdempotency(req, res, next) {
   const key = req.headers['idempotency-key'];
 
   if (!key || String(key).trim() === '') {
-    return res.status(400).json({
-      error: 'Missing Idempotency-Key header',
-      code: 'MISSING_IDEMPOTENCY_KEY',
-    });
+    return sendError(res, 400, 'MISSING_IDEMPOTENCY_KEY', 'Missing Idempotency-Key header');
   }
 
   const redisKey = KEY_PREFIX + String(key).trim();
@@ -68,19 +66,13 @@ async function enforceIdempotency(req, res, next) {
 
     if (result === null) {
       logger.warn({ idempotencyKey: key, path: req.path }, '[idempotency] duplicate request rejected');
-      return res.status(409).json({
-        error: 'Duplicate request — this Idempotency-Key has already been processed',
-        code: 'DUPLICATE_REQUEST',
-      });
+      return sendError(res, 409, 'DUPLICATE_REQUEST', 'Duplicate request — this Idempotency-Key has already been processed');
     }
 
     return next();
   } catch (err) {
     logger.error({ err: err.message, idempotencyKey: key }, '[idempotency] Redis error, rejecting request');
-    return res.status(503).json({
-      error: 'Service temporarily unavailable',
-      code: 'IDEMPOTENCY_CHECK_FAILED',
-    });
+    return sendError(res, 503, 'IDEMPOTENCY_CHECK_FAILED', 'Service temporarily unavailable');
   }
 }
 

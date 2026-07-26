@@ -2,6 +2,7 @@
 
 const { verifyJwt } = require('../services/jwt');
 const { logger } = require('../logger');
+const { sendError } = require('../utils/http-errors');
 
 // ---------------------------------------------------------------------------
 // JWT Bearer middleware for service-to-service authentication.
@@ -38,26 +39,17 @@ function verifyJwtBearer(req, res, next) {
   const authHeader = req.headers['authorization'];
 
   if (!authHeader) {
-    return res.status(401).json({
-      error: 'Missing Authorization header',
-      code: 'MISSING_TOKEN',
-    });
+    return sendError(res, 401, 'MISSING_TOKEN', 'Missing Authorization header');
   }
 
   if (!authHeader.startsWith('Bearer ')) {
-    return res.status(401).json({
-      error: 'Authorization header must use Bearer scheme',
-      code: 'MALFORMED_TOKEN',
-    });
+    return sendError(res, 401, 'MALFORMED_TOKEN', 'Authorization header must use Bearer scheme');
   }
 
   const token = authHeader.slice(7).trim();
 
   if (!token) {
-    return res.status(401).json({
-      error: 'Bearer token is empty',
-      code: 'MISSING_TOKEN',
-    });
+    return sendError(res, 401, 'MISSING_TOKEN', 'Bearer token is empty');
   }
 
   try {
@@ -71,10 +63,7 @@ function verifyJwtBearer(req, res, next) {
       '[jwt-auth] rejected request: %s',
       err.message
     );
-    return res.status(status).json({
-      error: err.message,
-      code: err.code ?? 'INVALID_TOKEN',
-    });
+    return sendError(res, status, err.code ?? 'INVALID_TOKEN', err.message);
   }
 }
 

@@ -41,6 +41,7 @@ try {
 } catch (e) {
   logger = console;
 }
+const { sendError } = require('../utils/http-errors');
 let IORedis;
 let getRedisConnectionOptions;
 try {
@@ -190,11 +191,7 @@ const publicRateLimiter = rateLimit({
       (req.log || logger).warn({ err: e && e.message }, 'failed to record rate limit metric');
     }
 
-    res.status(429).json({
-      error: 'Too many requests from this IP. Please retry after the window resets.',
-      code: 'RATE_LIMIT_EXCEEDED',
-      retryAfter: Math.ceil(PUBLIC_WINDOW_MS / 1000),
-    });
+    return sendError(res, 429, 'RATE_LIMIT_EXCEEDED', 'Too many requests from this IP. Please retry after the window resets.', { retryAfter: Math.ceil(PUBLIC_WINDOW_MS / 1000) });
   },
 });
 
@@ -224,11 +221,7 @@ const authenticatedRateLimiter = rateLimit({
       (req.log || logger).warn({ err: e && e.message }, 'failed to record rate limit metric');
     }
 
-    res.status(429).json({
-      error: 'Rate limit exceeded for authenticated client. Please retry after the window resets.',
-      code: 'RATE_LIMIT_EXCEEDED',
-      retryAfter: Math.ceil(PUBLIC_WINDOW_MS / 1000),
-    });
+    return sendError(res, 429, 'RATE_LIMIT_EXCEEDED', 'Rate limit exceeded for authenticated client. Please retry after the window resets.', { retryAfter: Math.ceil(PUBLIC_WINDOW_MS / 1000) });
   },
 });
 
