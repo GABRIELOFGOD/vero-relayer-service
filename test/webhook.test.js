@@ -5,14 +5,17 @@ const { createApp } = require('../index');
 const { signJwt } = require('../src/services/jwt');
 const { closeRedisClient: closeIdempotencyRedis } = require('../src/middleware/idempotency');
 const { closeRedisClient: closeRateLimitRedis } = require('../src/middleware/rateLimit');
+const { shutdown: closeDbPool } = require('../src/db/client');
 
-// index.js wires the idempotency and rate-limit middleware in, both of which
-// lazily open a real Redis connection on first use. Without closing them the
-// process never exits once REDIS_HOST points at a reachable Redis (as it does
-// in CI), hanging the test runner indefinitely.
+// index.js wires the idempotency and rate-limit middleware in (each lazily
+// opens a real Redis connection on first use) and also requires src/db/client,
+// which opens a real Postgres pool at module load time. Without closing all
+// three, the process never exits once REDIS_HOST/PGHOST point at reachable
+// services (as they do in CI), hanging the test runner indefinitely.
 after(async () => {
   await closeIdempotencyRedis();
   await closeRateLimitRedis();
+  await closeDbPool();
 });
 
 const TEST_SECRET = 'test-webhook-secret';
