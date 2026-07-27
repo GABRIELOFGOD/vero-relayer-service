@@ -8,19 +8,21 @@ const RETRY_BACKOFFS = [5_000, 15_000, 45_000, 120_000, 300_000]; // 5s, 15s, 45
  * Designed for use with BullMQ job processing: records attempt count,
  * schedules next_retry_at, and provides a worker to resume timed-out retries.
  */
-async function initRetryState(jobType, jobId, maxAttempts = 5) {
+async function initRetryState(jobType, jobId, maxAttempts = 5, eventPayload = null) {
   await pool.query(
-    `INSERT INTO retry_state (job_type, job_id, max_attempts, status)
-     VALUES ($1, $2, $3, 'pending')
-     ON CONFLICT (job_type, job_id) DO NOTHING`,
-    [jobType, String(jobId), maxAttempts]
+    `INSERT INTO retry_state (job_type, job_id, max_attempts, status, event_payload)
+     VALUES ($1, $2, $3, 'pending', $4)
+     ON CONFLICT (job_type, job_id) DO UPDATE
+       SET event_payload = COALESCE(retry_state.event_payload, EXCLUDED.event_payload)`,
+    [jobType, String(jobId), maxAttempts, eventPayload ? JSON.stringify(eventPayload) : null]
   );
 }
 
 async function getRetryState(jobType, jobId) {
   const { rows } = await pool.query(
     `SELECT id, job_type, job_id, attempt_count, max_attempts,
-            last_error, next_retry_at, status, created_at, updated_at
+            last_error, next_retry_at, status, created_at, updated_at,
+            event_payload
      FROM retry_state
      WHERE job_type = $1 AND job_id = $2`,
     [jobType, String(jobId)]
@@ -117,7 +119,8 @@ async function failRetry(jobType, jobId, errorMessage) {
 async function findDueRetries(jobType, limit = 50) {
   const { rows } = await pool.query(
     `SELECT id, job_type, job_id, attempt_count, max_attempts,
-            last_error, next_retry_at, status, created_at, updated_at
+            last_error, next_retry_at, status, created_at, updated_at,
+            event_payload
      FROM retry_state
      WHERE job_type = $1
        AND status = 'retrying'
