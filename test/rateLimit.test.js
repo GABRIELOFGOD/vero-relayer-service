@@ -1,7 +1,7 @@
 'use strict';
 
 const assert  = require('node:assert/strict');
-const { test } = require('node:test');
+const { test, after } = require('node:test');
 
 const expressRateLimit = require('express-rate-limit');
 const express          = require('express');
@@ -14,7 +14,15 @@ const {
   AUTH_MAX,
   PUBLIC_WINDOW_MS,
   ingestRateLimiter,
+  closeRedisClient,
 } = require('../src/middleware/rateLimit');
+
+// A Redis-backed store is lazily opened the first time REDIS_HOST is set
+// (see below). Close it so the process can exit once REDIS_HOST is reachable,
+// as it is in CI — otherwise the open connection hangs the test runner.
+after(async () => {
+  await closeRedisClient();
+});
 
 // ---------------------------------------------------------------------------
 // isAuthenticated helper

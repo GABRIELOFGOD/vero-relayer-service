@@ -249,6 +249,18 @@ function ingestRateLimiter(req, res, next) {
   return publicRateLimiter(req, res, next);
 }
 
+/**
+ * Closes the cached Redis client, if one was ever created. Primarily used by
+ * tests to release the connection so the process can exit cleanly.
+ */
+async function closeRedisClient() {
+  if (!redisClient) return;
+  const client = redisClient;
+  redisClient = null;
+  redisStore = null;
+  await client.quit().catch(() => client.disconnect());
+}
+
 module.exports = {
   ingestRateLimiter,
   publicRateLimiter,
@@ -258,4 +270,5 @@ module.exports = {
   PUBLIC_WINDOW_MS,
   PUBLIC_MAX,
   AUTH_MAX,
+  closeRedisClient,
 };

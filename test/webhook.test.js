@@ -1,8 +1,19 @@
 const assert = require('node:assert/strict');
-const { test } = require('node:test');
+const { test, after } = require('node:test');
 const crypto = require('node:crypto');
 const { createApp } = require('../index');
 const { signJwt } = require('../src/services/jwt');
+const { closeRedisClient: closeIdempotencyRedis } = require('../src/middleware/idempotency');
+const { closeRedisClient: closeRateLimitRedis } = require('../src/middleware/rateLimit');
+
+// index.js wires the idempotency and rate-limit middleware in, both of which
+// lazily open a real Redis connection on first use. Without closing them the
+// process never exits once REDIS_HOST points at a reachable Redis (as it does
+// in CI), hanging the test runner indefinitely.
+after(async () => {
+  await closeIdempotencyRedis();
+  await closeRateLimitRedis();
+});
 
 const TEST_SECRET = 'test-webhook-secret';
 const TEST_JWT_SECRET = 'test-jwt-secret-32-chars-long-0000000000';
