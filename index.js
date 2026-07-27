@@ -34,7 +34,7 @@ function createApp(options = {}) {
     }
   }));
 
-  registerMetrics(app);
+  registerMetrics(app, { authMiddleware: verifyJwtBearer });
 
   app.get('/health', async (req, res) => {
     try {
