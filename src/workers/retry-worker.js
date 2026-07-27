@@ -1,6 +1,6 @@
 const { logger } = require('../logger');
 const { resetStuckRetries, findDueRetries, failRetry } = require('../services/retry-tracker');
-const { enqueueEvent } = require('../queue/event-queue');
+const { enqueueEvent, getEventQueue } = require('../queue/event-queue');
 
 const JOB_TYPE_EVENT = 'event-processing';
 const POLL_INTERVAL_MS = 10_000; // Check every 10s
@@ -27,12 +27,24 @@ async function startRetryWorker() {
 
       logger.info('[retry-worker] Found %d retries due for processing', due.length);
 
+      const queue = getEventQueue();
+
       for (const row of due) {
         try {
-          await enqueueEvent(
-            { eventType: 'retry.resume', originalJobId: row.job_id, retryId: row.id },
-            { jobId: `retry-${row.job_id}-${row.attempt_count}` }
-          );
+          const originalJob = await queue.getJob(row.job_id);
+
+          if (!originalJob || !originalJob.data) {
+            await failRetry(JOB_TYPE_EVENT, row.job_id, 'Original job data not found for retry resume');
+            logger.warn(
+              { jobId: row.job_id },
+              '[retry-worker] Original job data not found in queue, marking as failed'
+            );
+            continue;
+          }
+
+          await enqueueEvent(originalJob.data, {
+            jobId: `retry-${row.job_id}-${row.attempt_count}`
+          });
           logger.info(
             { jobId: row.job_id, attempt: row.attempt_count },
             '[retry-worker] Re-enqueued retry'
