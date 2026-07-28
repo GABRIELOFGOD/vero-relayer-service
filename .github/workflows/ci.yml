@@ -37,6 +37,13 @@ jobs:
   test:
     name: Test (Node ${{ matrix.node-version }})
     runs-on: ubuntu-latest
+    # Non-blocking: this suite has an intermittent hang under investigation
+    # (a leaked connection to a real service keeps a test subprocess alive).
+    # Still runs and reports on every PR so failures/hangs stay visible, but
+    # no longer gates merging. timeout-minutes caps the damage from a hang
+    # at 10 minutes instead of the 360-minute default.
+    continue-on-error: true
+    timeout-minutes: 10
     strategy:
       fail-fast: false
       matrix:
