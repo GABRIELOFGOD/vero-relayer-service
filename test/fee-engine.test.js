@@ -1,5 +1,5 @@
 const assert = require('node:assert/strict');
-const { test, beforeEach } = require('node:test');
+const { test: nodeTest } = require('node:test');
 const {
   clearFeeEstimateCache,
   estimateStellarFee,
@@ -16,9 +16,16 @@ const {
 // tests in this file and would return the first test's cached result for
 // every later assertion. Clear both cache layers before every test so
 // behavior doesn't depend on whether Redis happens to be reachable.
-beforeEach(async () => {
-  await clearFeeEstimateCache();
-});
+//
+// node:test's top-level beforeEach() isn't available on Node 18.20 (the
+// version this repo's CI actually runs), so wrap test() itself instead —
+// this works on any Node version that has node:test at all.
+function test(name, fn) {
+  nodeTest(name, async (t) => {
+    await clearFeeEstimateCache();
+    return fn(t);
+  });
+}
 
 const silentLogger = {
   log: () => {},
