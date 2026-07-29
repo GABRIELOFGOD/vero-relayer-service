@@ -84,4 +84,15 @@ async function enforceIdempotency(req, res, next) {
   }
 }
 
-module.exports = { enforceIdempotency };
+/**
+ * Closes the cached Redis client, if one was ever created. Primarily used by
+ * tests to release the connection so the process can exit cleanly.
+ */
+async function closeRedisClient() {
+  if (!redisClient) return;
+  const client = redisClient;
+  redisClient = null;
+  await client.quit().catch(() => client.disconnect());
+}
+
+module.exports = { enforceIdempotency, closeRedisClient };
