@@ -22,7 +22,7 @@
     "@stellar/stellar-sdk": "12.3.0",
     "bullmq": "^5.81.2",
     "dotenv": "16.4.5",
-    "express": "4.22.2",
+    "express": "5.2.1",
     "express-rate-limit": "^8.6.1",
     "ioredis": "^5.11.1",
     "node-cron": "^4.6.0",
