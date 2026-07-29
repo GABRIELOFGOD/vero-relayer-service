@@ -147,7 +147,12 @@ const AUTH_MAX         = Number(process.env.RATE_LIMIT_AUTH_MAX)     || 1_000;
  */
 function clientIp(req) {
   if (req.ip) {
-    return ipKeyGenerator(req);
+    // ipKeyGenerator takes the IP string itself, not the request object —
+    // passing `req` here made every key resolve to the literal string
+    // "[object Object]" (isIPv6() rejects a non-string, so it falls through
+    // to `return ip` unchanged), collapsing every client into one shared
+    // rate-limit counter regardless of actual IP.
+    return ipKeyGenerator(req.ip);
   }
   return req.socket?.remoteAddress || 'unknown';
 }
