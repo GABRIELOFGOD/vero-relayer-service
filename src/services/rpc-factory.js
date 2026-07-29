@@ -1,5 +1,5 @@
 const { StellarSdk, Horizon, rpc } = require('@stellar/stellar-sdk');
-const logger = require('../logger');
+const { logger } = require('../logger');
 
 class RpcFactory {
   constructor() {
