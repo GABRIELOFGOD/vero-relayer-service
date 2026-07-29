@@ -99,7 +99,7 @@ test('config poller handles Redis errors gracefully', async () => {
 
 test('config poller applies signed config with valid signature', async () => {
   // Setup JWT signing secret for test
-  process.env.JWT_SIGNING_SECRET = 'test-signing-secret-32-chars-min!!';
+  process.env.JWT_SIGNING_SECRET = 'test-jwt-secret-32-chars-long-0000000000';
   process.env.JWT_ISSUER = 'test-issuer';
   
   const testConfig = {
@@ -127,7 +127,7 @@ test('config poller applies signed config with valid signature', async () => {
 });
 
 test('config poller rejects signed config with invalid signature', async () => {
-  process.env.JWT_SIGNING_SECRET = 'test-signing-secret-32-chars-min!!';
+  process.env.JWT_SIGNING_SECRET = 'test-jwt-secret-32-chars-long-0000000000';
   
   const testConfig = {
     STELLAR_BASE_FEE: '555'
