@@ -24,6 +24,7 @@ const CLOSERS = [
   { modulePath: '../src/middleware/idempotency', close: mod => mod.closeRedisClient() },
   { modulePath: '../src/middleware/rateLimit', close: mod => mod.closeRedisClient() },
   { modulePath: '../src/queue/event-queue', close: mod => mod.closeEventQueue() },
+  { modulePath: '../src/services/fee-engine', close: mod => mod.closeRpcCache() },
 ];
 
 after(async () => {

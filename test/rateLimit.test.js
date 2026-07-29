@@ -1,7 +1,7 @@
 'use strict';
 
 const assert  = require('node:assert/strict');
-const { test } = require('node:test');
+const { test, after } = require('node:test');
 
 const expressRateLimit = require('express-rate-limit');
 const express          = require('express');
@@ -14,7 +14,19 @@ const {
   AUTH_MAX,
   PUBLIC_WINDOW_MS,
   ingestRateLimiter,
+  closeRedisClient,
 } = require('../src/middleware/rateLimit');
+
+// The "reloaded" test below evicts this module from require.cache to force
+// a fresh read of RATE_LIMIT_PUBLIC_MAX, which leaves this original
+// instance's redis connection (opened at import time above, and still used
+// by every other test in this file via the destructured ingestRateLimiter
+// closure) unreachable via require.cache — the global teardown can only
+// close whatever is CURRENTLY cached, so it would never find this one.
+// Close it directly, via the reference captured here before any eviction.
+after(async () => {
+  await closeRedisClient();
+});
 
 // ---------------------------------------------------------------------------
 // isAuthenticated helper
@@ -209,6 +221,12 @@ test('ingestRateLimiter respects RATE_LIMIT_PUBLIC_MAX env when reloaded (can tr
   } else {
     process.env.RATE_LIMIT_PUBLIC_MAX = prev;
   }
+
+  // This reload created its own redis connection, distinct from the
+  // original top-level import's — close it before it becomes unreachable
+  // (nothing else holds a reference to `reloaded` once this test returns).
+  await reloaded.closeRedisClient();
+
   // clear cache so subsequent tests load original constants
   delete require.cache[require.resolve('../src/middleware/rateLimit')];
 });
