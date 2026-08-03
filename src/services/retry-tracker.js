@@ -1,7 +1,39 @@
+require('dotenv').config();
+
 const { pool } = require('../db/client');
 const { logger } = require('../logger');
 
-const RETRY_BACKOFFS = [5_000, 15_000, 45_000, 120_000, 300_000]; // 5s, 15s, 45s, 2m, 5m
+const DEFAULT_RETRY_BACKOFFS_MS = [5_000, 15_000, 45_000, 120_000, 300_000]; // 5s, 15s, 45s, 2m, 5m
+
+function parseRetryBackoffValue(value) {
+  const delay = Number(value);
+
+  if (!Number.isInteger(delay) || delay < 1) {
+    throw new Error('RETRY_BACKOFFS_MS must be a comma-separated list of positive integers (milliseconds)');
+  }
+
+  return delay;
+}
+
+function getRetryBackoffsMs(env = process.env) {
+  const rawBackoffs = env.RETRY_BACKOFFS_MS;
+
+  if (!rawBackoffs) {
+    return [...DEFAULT_RETRY_BACKOFFS_MS];
+  }
+
+  const backoffs = String(rawBackoffs)
+    .split(',')
+    .map(entry => parseRetryBackoffValue(entry.trim()));
+
+  if (backoffs.length === 0) {
+    throw new Error('RETRY_BACKOFFS_MS must include at least one retry delay');
+  }
+
+  return backoffs;
+}
+
+const RETRY_BACKOFFS = getRetryBackoffsMs();
 
 /**
  * Tracks retry state in PostgreSQL so retry cycles survive service restarts.
@@ -45,8 +77,9 @@ async function recordRetry(jobType, jobId, errorMessage) {
   }
 
   const newAttemptCount = state.attempt_count + 1;
-  const backoffIndex = Math.min(newAttemptCount - 1, RETRY_BACKOFFS.length - 1);
-  const delayMs = RETRY_BACKOFFS[backoffIndex];
+  const retryBackoffs = getRetryBackoffsMs();
+  const backoffIndex = Math.min(newAttemptCount - 1, retryBackoffs.length - 1);
+  const delayMs = retryBackoffs[backoffIndex];
   const nextRetryAt = new Date(Date.now() + delayMs).toISOString();
 
   const status = newAttemptCount >= state.max_attempts ? 'failed' : 'retrying';
@@ -164,5 +197,7 @@ module.exports = {
   failRetry,
   findDueRetries,
   resetStuckRetries,
+  DEFAULT_RETRY_BACKOFFS_MS,
+  getRetryBackoffsMs,
   RETRY_BACKOFFS,
 };
